@@ -73,10 +73,15 @@ def get_candles():
 def send(text):
     if os.environ.get("DRY_RUN") == "1":
         print("[DRY RUN] would send:\n" + text)
-        return
-    r = requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage",
-                      json={"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text}, timeout=20)
+        return {"dry_run": True, "text": text}
+    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        raise ValueError(f"Missing Telegram credentials: TELEGRAM_TOKEN={'set' if token else 'missing'}, TELEGRAM_CHAT_ID={'set' if chat_id else 'missing'}")
+    r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                      json={"chat_id": chat_id, "text": text}, timeout=20)
     r.raise_for_status()
+    return r.json()
 
 
 def load_state():
@@ -141,15 +146,52 @@ def send_last_signal():
            f"TP: {tp:.2f}  (1:{bt.RR:g})\n"
            f"Risk distance: {risk:.2f}\n"
            f"Check live price before entering.")
-    send(msg)
+    resp = send(msg)
     return {
         "status": "sent",
+        "telegram_response": resp,
         "candle_closed": when,
         "side": side,
         "entry": round(entry, 2),
         "sl": round(sl, 2),
         "tp": round(tp, 2),
         "risk_distance": round(risk, 2)
+    }
+
+
+def debug_telegram():
+    """Inspect bot info and detect recent chat IDs from Telegram."""
+    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    dry_run = os.environ.get("DRY_RUN", "0")
+    if not token:
+        return {"error": "TELEGRAM_TOKEN is missing or empty in environment variables"}
+
+    r_me = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+    me_data = r_me.json()
+
+    r_up = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=10)
+    up_data = r_up.json()
+
+    recent = []
+    if up_data.get("ok"):
+        for u in up_data.get("result", [])[-10:]:
+            msg = u.get("message") or u.get("channel_post") or {}
+            c = msg.get("chat")
+            if c:
+                recent.append({
+                    "chat_id": c.get("id"),
+                    "chat_type": c.get("type"),
+                    "title_or_name": c.get("title") or c.get("first_name"),
+                    "username": c.get("username"),
+                    "text": msg.get("text")
+                })
+
+    return {
+        "dry_run": dry_run,
+        "configured_chat_id": chat_id,
+        "bot_info": me_data,
+        "recent_chats_detected": recent
     }
 
 

@@ -94,6 +94,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"message": "Test ping sent to Telegram successfully"})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
+        elif self.path == "/debug" or self.path == "/debug-telegram":
+            try:
+                debug_info = cloud_check.debug_telegram()
+                self._send_json(200, debug_info)
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
         else:
             response = {
                 "service": "gold-signals-bot",
@@ -102,7 +108,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                     "/": "Service status",
                     "/check": "Run manual check right now",
                     "/test-signal": "Send the most recent trading signal to Telegram (replay/test)",
-                    "/test": "Send a simple test ping message to Telegram"
+                    "/test": "Send a simple test ping message to Telegram",
+                    "/debug": "Debug Telegram bot token, chat ID, and see recent incoming chats"
                 },
                 "last_run": last_run_info,
             }
