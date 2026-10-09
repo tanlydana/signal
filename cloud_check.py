@@ -120,12 +120,46 @@ def run(df, state):
     return state
 
 
+def send_last_signal():
+    """Find the most recent signal from data and send it immediately (useful for testing Telegram)."""
+    df = get_candles()
+    sigs = bt.gen_signals(df)
+    if not sigs:
+        return {"status": "no_signals_found"}
+    last_i = max(sigs.keys())
+    side, sl = sigs[last_i]
+    entry = float(df["close"].iloc[last_i])
+    ts = int(df["ts"].iloc[last_i])
+    risk = (entry - sl) if side == "BUY" else (sl - entry)
+    tp = entry + bt.RR * risk if side == "BUY" else entry - bt.RR * risk
+    when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts))
+    msg = (f"[TEST / LAST SIGNAL REPLAY]\n"
+           f"{side} {SYMBOL} {TF}\n"
+           f"Candle closed: {when}\n"
+           f"Entry (approx): {entry:.2f}\n"
+           f"SL: {sl:.2f}\n"
+           f"TP: {tp:.2f}  (1:{bt.RR:g})\n"
+           f"Risk distance: {risk:.2f}\n"
+           f"Check live price before entering.")
+    send(msg)
+    return {
+        "status": "sent",
+        "candle_closed": when,
+        "side": side,
+        "entry": round(entry, 2),
+        "sl": round(sl, 2),
+        "tp": round(tp, 2),
+        "risk_distance": round(risk, 2)
+    }
+
+
 def main():
     df = get_candles()
     state = run(df, load_state())
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
     print(f"Checked {len(df)} candles, last closed: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(int(df['ts'].iloc[-1])))}")
+
 
 
 if __name__ == "__main__":

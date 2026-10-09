@@ -72,23 +72,41 @@ def worker_loop():
 
 
 class HealthHandler(BaseHTTPRequestHandler):
+    def _send_json(self, status_code, data):
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode("utf-8"))
+
     def do_GET(self):
         if self.path == "/check":
             execute_signal_check()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"message": "Manual check executed", "info": last_run_info}).encode("utf-8"))
+            self._send_json(200, {"message": "Manual check executed", "info": last_run_info})
+        elif self.path == "/test-signal":
+            try:
+                res = cloud_check.send_last_signal()
+                self._send_json(200, {"message": "Last signal sent to Telegram", "signal": res})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+        elif self.path == "/test":
+            try:
+                cloud_check.send("🔔 Gold Signals Bot: Test alert from Railway is working successfully!")
+                self._send_json(200, {"message": "Test ping sent to Telegram successfully"})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
         else:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
             response = {
                 "service": "gold-signals-bot",
                 "uptime": "active",
+                "endpoints": {
+                    "/": "Service status",
+                    "/check": "Run manual check right now",
+                    "/test-signal": "Send the most recent trading signal to Telegram (replay/test)",
+                    "/test": "Send a simple test ping message to Telegram"
+                },
                 "last_run": last_run_info,
             }
-            self.wfile.write(json.dumps(response).encode("utf-8"))
+            self._send_json(200, response)
 
     def log_message(self, format, *args):
         # Silence standard HTTP ping access logs to keep stdout clean

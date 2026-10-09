@@ -1,10 +1,9 @@
 name: gold-signals
 
 on:
-  schedule:
-    # minutes 1,16,31,46 = just after each 15m candle closes; Sun-Fri (gold is closed Saturday). Times are UTC.
-    - cron: "1,16,31,46 * * * 0-5"
-  workflow_dispatch:        # lets you press "Run workflow" manually to test
+  # schedule:
+  #   - cron: "1,16,31,46 * * * 0-5"   # Disabled: Railway now handles continuous 24/7 checks
+  workflow_dispatch:                  # lets you press "Run workflow" manually in GitHub Actions to test
 
 permissions:
   contents: write           # needed to save state.json
