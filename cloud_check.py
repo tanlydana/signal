@@ -14,11 +14,21 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 import requests
 
 import msnr_fib_backtest as bt
+
+CAMBODIA_TZ = timezone(timedelta(hours=7))
+
+
+def format_cambodia_time(ts):
+    """Convert unix epoch timestamp to Cambodia local time (UTC+7)."""
+    dt = datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(CAMBODIA_TZ)
+    return dt.strftime("%Y-%m-%d %I:%M %p (KH)")
+
 
 SYMBOL = os.environ.get("SYMBOL_LABEL", "XAUUSD")
 TF = os.environ.get("TF", "15m")
@@ -70,7 +80,7 @@ def get_candles():
     return df.iloc[:-1].reset_index(drop=True)      # drop the still-forming candle
 
 
-def send(text):
+def send(text, parse_mode="HTML"):
     if os.environ.get("DRY_RUN") == "1":
         print("[DRY RUN] would send:\n" + text)
         return {"dry_run": True, "text": text}
@@ -78,10 +88,33 @@ def send(text):
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
         raise ValueError(f"Missing Telegram credentials: TELEGRAM_TOKEN={'set' if token else 'missing'}, TELEGRAM_CHAT_ID={'set' if chat_id else 'missing'}")
+    payload = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                      json={"chat_id": chat_id, "text": text}, timeout=20)
+                      json=payload, timeout=20)
     r.raise_for_status()
     return r.json()
+
+
+def format_signal_message(side, symbol, tf, when, entry, sl, tp, rr, risk, is_test=False):
+    is_buy = side.upper() == "BUY"
+    action_badge = "🟢 <b>BUY SIGNAL</b>" if is_buy else "🔴 <b>SELL SIGNAL</b>"
+    trend_emoji = "📈" if is_buy else "📉"
+    test_tag = "🧪 <b>[TEST REPLAY]</b>\n" if is_test else ""
+
+    return (
+        f"{test_tag}"
+        f"{action_badge} | <b>{symbol}</b> ({tf}) {trend_emoji}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⏰ <b>Time (Cambodia):</b> <code>{when}</code>\n"
+        f"🎯 <b>Entry:</b> <code>{entry:.2f}</code>\n"
+        f"🛑 <b>Stop Loss:</b> <code>{sl:.2f}</code>\n"
+        f"💰 <b>Take Profit:</b> <code>{tp:.2f}</code> (1:{rr:g} R:R)\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📏 <b>Risk:</b> <code>{risk:.2f}</code> pts\n"
+        f"⚠️ <i>Confirm live spread and price before entry.</i>"
+    )
 
 
 def load_state():
@@ -109,14 +142,9 @@ def run(df, state):
         if risk <= 0:
             continue
         tp = entry + bt.RR * risk if side == "BUY" else entry - bt.RR * risk
-        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts))
-        send(f"{side} {SYMBOL} {TF}\n"
-             f"Candle closed: {when}\n"
-             f"Entry (approx): {entry:.2f}\n"
-             f"SL: {sl:.2f}\n"
-             f"TP: {tp:.2f}  (1:{bt.RR:g})\n"
-             f"Risk distance: {risk:.2f}\n"
-             f"Check live price before entering.")
+        when = format_cambodia_time(ts)
+        msg = format_signal_message(side, SYMBOL, TF, when, entry, sl, tp, bt.RR, risk, is_test=False)
+        send(msg)
         last = ts
         print(f"Signal sent for candle {when}")
     state["last_signal_ts"] = last
@@ -137,20 +165,13 @@ def send_last_signal():
     ts = int(df["ts"].iloc[last_i])
     risk = (entry - sl) if side == "BUY" else (sl - entry)
     tp = entry + bt.RR * risk if side == "BUY" else entry - bt.RR * risk
-    when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts))
-    msg = (f"[TEST / LAST SIGNAL REPLAY]\n"
-           f"{side} {SYMBOL} {TF}\n"
-           f"Candle closed: {when}\n"
-           f"Entry (approx): {entry:.2f}\n"
-           f"SL: {sl:.2f}\n"
-           f"TP: {tp:.2f}  (1:{bt.RR:g})\n"
-           f"Risk distance: {risk:.2f}\n"
-           f"Check live price before entering.")
+    when = format_cambodia_time(ts)
+    msg = format_signal_message(side, SYMBOL, TF, when, entry, sl, tp, bt.RR, risk, is_test=True)
     resp = send(msg)
     return {
         "status": "sent",
         "telegram_response": resp,
-        "candle_closed": when,
+        "candle_closed_cambodia": when,
         "side": side,
         "entry": round(entry, 2),
         "sl": round(sl, 2),
