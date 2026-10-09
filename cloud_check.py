@@ -98,22 +98,16 @@ def send(text, parse_mode="HTML"):
 
 
 def format_signal_message(side, symbol, tf, when, entry, sl, tp, rr, risk, is_test=False):
-    is_buy = side.upper() == "BUY"
-    action_badge = "🟢 <b>BUY SIGNAL</b>" if is_buy else "🔴 <b>SELL SIGNAL</b>"
-    trend_emoji = "📈" if is_buy else "📉"
-    test_tag = "🧪 <b>[TEST REPLAY]</b>\n" if is_test else ""
+    dot = "🟢" if side.upper() == "BUY" else "🔴"
+    prefix = "[Test] " if is_test else ""
 
     return (
-        f"{test_tag}"
-        f"{action_badge} | <b>{symbol}</b> ({tf}) {trend_emoji}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⏰ <b>Time (Cambodia):</b> <code>{when}</code>\n"
-        f"🎯 <b>Entry:</b> <code>{entry:.2f}</code>\n"
-        f"🛑 <b>Stop Loss:</b> <code>{sl:.2f}</code>\n"
-        f"💰 <b>Take Profit:</b> <code>{tp:.2f}</code> (1:{rr:g} R:R)\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📏 <b>Risk:</b> <code>{risk:.2f}</code> pts\n"
-        f"⚠️ <i>Confirm live spread and price before entry.</i>"
+        f"{prefix}{dot} <b>{side.upper()} {symbol}</b> · {tf}\n\n"
+        f"Entry: <code>{entry:.2f}</code>\n"
+        f"SL: <code>{sl:.2f}</code>\n"
+        f"TP: <code>{tp:.2f}</code> (1:{rr:g})\n"
+        f"Risk: <code>{risk:.2f}</code>\n\n"
+        f"Time: {when}"
     )
 
 
