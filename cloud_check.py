@@ -34,7 +34,7 @@ SYMBOL = os.environ.get("SYMBOL_LABEL", "XAUUSD")
 TF = os.environ.get("TF", "15m")
 SOURCE = os.environ.get("DATA_SOURCE", "yahoo")
 STATE_FILE = "state.json"
-LOOKBACK_BARS = 3          # also check the last 3 closed candles, in case GitHub starts a run late
+LOOKBACK_BARS = 6          # check the last 6 closed candles (90 mins) to prevent missing delayed data
 
 
 def to_epoch(series):
@@ -210,12 +210,43 @@ def debug_telegram():
     }
 
 
-def main():
+def check_railway_healthy():
+    """Check if Railway primary bot is active and ran recently (used by GitHub Actions backup)."""
+    url = os.environ.get("RAILWAY_URL", "").strip()
+    if not url:
+        return False
+    try:
+        r = requests.get(url.rstrip("/") + "/", timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            last_run = data.get("last_run", {})
+            status = last_run.get("status", "")
+            last_epoch = last_run.get("last_check_epoch", 0)
+            if not last_epoch and last_run.get("last_check_time"):
+                import calendar
+                st = time.strptime(last_run["last_check_time"], "%Y-%m-%d %H:%M:%S UTC")
+                last_epoch = calendar.timegm(st)
+            # If Railway checked within the last 20 minutes (1200s) and status is ok, it is healthy
+            if status == "ok" and last_epoch and (time.time() - last_epoch < 1200):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def main(force=False):
+    if not force and os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch" and check_railway_healthy():
+        print("Railway primary service is active and healthy. Skipping redundant backup check.")
+        return {"status": "skipped_railway_healthy"}
+
     df = get_candles()
     state = run(df, load_state())
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
-    print(f"Checked {len(df)} candles, last closed: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(int(df['ts'].iloc[-1])))}")
+    last_ts = int(df["ts"].iloc[-1])
+    last_str = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(last_ts))
+    print(f"Checked {len(df)} candles, last closed: {last_str}")
+    return {"status": "ok", "last_candle_ts": last_ts, "last_candle": last_str}
 
 
 

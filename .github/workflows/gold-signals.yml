@@ -1,8 +1,8 @@
 name: gold-signals
 
 on:
-  # schedule:
-  #   - cron: "1,16,31,46 * * * 0-5"   # Disabled: Railway now handles continuous 24/7 checks
+  schedule:
+    - cron: "2,17,32,47 * * * 0-5"   # Automated 15m backup check (runs at :02, :17, :32, :47 UTC)
   workflow_dispatch:                  # lets you press "Run workflow" manually in GitHub Actions to test
 
 permissions:
@@ -33,6 +33,7 @@ jobs:
           DATA_SOURCE: yahoo          # or: twelvedata (then also add TWELVE_API_KEY secret below)
           TWELVE_API_KEY: ${{ secrets.TWELVE_API_KEY }}
           TF: 15m
+          RAILWAY_URL: "https://web-production-48020.up.railway.app"
         run: python cloud_check.py
 
       - name: Save state
@@ -40,4 +41,4 @@ jobs:
           git config user.name "signal-bot"
           git config user.email "signal-bot@users.noreply.github.com"
           git add state.json
-          git diff --cached --quiet || (git commit -m "update state" && git push)
+          git diff --cached --quiet || (git commit -m "update state [skip ci] [skip railway]" && git push)

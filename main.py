@@ -17,29 +17,35 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import cloud_check
 
 PORT = int(os.environ.get("PORT", 8080))
-OFFSET_SECONDS = int(os.environ.get("CANDLE_OFFSET_SEC", 20))  # seconds after candle close to allow data finalization
+OFFSET_SECONDS = int(os.environ.get("CANDLE_OFFSET_SEC", 30))  # seconds after candle close to allow data finalization
 
 last_run_info = {
     "status": "initialized",
     "last_check_time": None,
+    "last_check_epoch": 0,
+    "last_candle": None,
     "last_error": None,
 }
 
 
 def execute_signal_check():
-    """Run cloud_check.main() and record execution status."""
+    """Run cloud_check.main(force=True) and record execution status."""
     try:
         now_str = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
         print(f"[{now_str}] Starting 15m signal check...")
-        cloud_check.main()
+        res = cloud_check.main(force=True)
         last_run_info["status"] = "ok"
         last_run_info["last_check_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        last_run_info["last_check_epoch"] = int(time.time())
+        if isinstance(res, dict) and "last_candle" in res:
+            last_run_info["last_candle"] = res["last_candle"]
         last_run_info["last_error"] = None
         print(f"[{last_run_info['last_check_time']}] Signal check completed successfully.")
     except Exception as e:
         last_run_info["status"] = "error"
         last_run_info["last_error"] = str(e)
         last_run_info["last_check_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        last_run_info["last_check_epoch"] = int(time.time())
         print(f"[{last_run_info['last_check_time']}] Error checking signals: {e}", file=sys.stderr)
 
 
@@ -100,16 +106,23 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._send_json(200, debug_info)
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
+        elif self.path == "/state":
+            try:
+                st = cloud_check.load_state()
+                self._send_json(200, st)
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
         else:
             response = {
                 "service": "gold-signals-bot",
                 "uptime": "active",
                 "endpoints": {
-                    "/": "Service status",
+                    "/": "Service status & last check details",
                     "/check": "Run manual check right now",
                     "/test-signal": "Send the most recent trading signal to Telegram (replay/test)",
                     "/test": "Send a simple test ping message to Telegram",
-                    "/debug": "Debug Telegram bot token, chat ID, and see recent incoming chats"
+                    "/debug": "Debug Telegram bot token, chat ID, and see recent incoming chats",
+                    "/state": "View current bot state (last_signal_ts, heartbeat)",
                 },
                 "last_run": last_run_info,
             }
