@@ -77,7 +77,16 @@ def get_candles():
 
     if len(df) < 200:
         raise RuntimeError(f"Not enough candles ({len(df)}). Market closed or data source problem.")
-    return df.iloc[:-1].reset_index(drop=True)      # drop the still-forming candle
+
+    # Only drop the last candle if it is ACTUALLY still forming.
+    # If its period has elapsed (now >= open_ts + timeframe), it is CLOSED and finalized!
+    tf_seconds = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}.get(TF, 900)
+    now = time.time()
+    last_candle_open = int(df["ts"].iloc[-1])
+    if now < (last_candle_open + tf_seconds):
+        df = df.iloc[:-1].reset_index(drop=True)      # drop only in-progress candle
+
+    return df.reset_index(drop=True)
 
 
 def send(text, parse_mode="HTML"):

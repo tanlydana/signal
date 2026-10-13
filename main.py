@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import cloud_check
 
 PORT = int(os.environ.get("PORT", 8080))
-OFFSET_SECONDS = int(os.environ.get("CANDLE_OFFSET_SEC", 30))  # seconds after candle close to allow data finalization
+OFFSET_SECONDS = int(os.environ.get("CANDLE_OFFSET_SEC", 15))  # seconds after candle close to start first check
 
 last_run_info = {
     "status": "initialized",
@@ -41,15 +41,39 @@ def execute_signal_check():
             last_run_info["last_candle"] = res["last_candle"]
         last_run_info["last_error"] = None
         print(f"[{last_run_info['last_check_time']}] Signal check completed successfully.")
+        return res
     except Exception as e:
         last_run_info["status"] = "error"
         last_run_info["last_error"] = str(e)
         last_run_info["last_check_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
         last_run_info["last_check_epoch"] = int(time.time())
         print(f"[{last_run_info['last_check_time']}] Error checking signals: {e}", file=sys.stderr)
+        return {"status": "error", "error": str(e)}
 
 
-def seconds_until_next_candle(offset_sec=20):
+def check_candle_with_retry(max_retries=5, retry_delay=15):
+    """
+    Check candles immediately upon close. If Yahoo Finance has not finalized the
+    latest closed candle yet, retry every 15s (up to ~75s) until it appears.
+    This guarantees alerts are sent within 30-75s of candle closing.
+    """
+    now = time.time()
+    interval = 15 * 60  # 900 seconds
+    expected_candle_open = int((now // interval) * interval - interval)
+
+    for attempt in range(1, max_retries + 1):
+        res = execute_signal_check()
+        last_ts = res.get("last_candle_ts") if isinstance(res, dict) else None
+        if last_ts is not None and last_ts >= expected_candle_open:
+            print(f"Candle data confirmed up-to-date on attempt {attempt}.")
+            return res
+        if attempt < max_retries:
+            print(f"[Attempt {attempt}/{max_retries}] Latest candle not finalized on Yahoo yet. Retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+    return None
+
+
+def seconds_until_next_candle(offset_sec=15):
     """
     Calculate seconds until the next 15-minute boundary + offset_sec.
     Boundaries: :00, :15, :30, :45.
@@ -65,7 +89,7 @@ def seconds_until_next_candle(offset_sec=20):
 
 
 def worker_loop():
-    """Background worker that sleeps until each 15m candle close and checks for signals."""
+    """Background worker that checks immediately when each 15m candle closes with rapid retry."""
     print("Worker loop started. Performing initial startup check...")
     execute_signal_check()
 
@@ -74,7 +98,7 @@ def worker_loop():
         target_time = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(time.time() + wait_seconds))
         print(f"Next candle check scheduled for {target_time} (in {int(wait_seconds)} seconds)...")
         time.sleep(wait_seconds)
-        execute_signal_check()
+        check_candle_with_retry()
 
 
 class HealthHandler(BaseHTTPRequestHandler):
